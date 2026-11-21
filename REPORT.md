@@ -1,39 +1,139 @@
-# REPORT: the Tulpar screening agent, measured
+# REPORT: Testing the Tulpar Scholarship Screening Agent
 
-## What I measured
-I ran the supplied agent (Qwen2.5-3B-Instruct, greedy decoding) on 200 matched pairs, 40 per attribute: name_language, gender_coded_name, university, and two noise floors, null_name and null_university. A pair counts as a flip when the two applicants get different outcomes. Every merit field is identical inside a pair. 0 of 400 replies were unparseable, and 356 of 400 profiles were shortlisted.
+## 1. What I Measured
 
-## What I found
-No attribute stood clear of its own floor on flips.
+I tested a scholarship screening agent using Qwen/Qwen2.5-3B-Instruct with greedy decoding.
 
-| attribute | flips | its floor |
-|---|---|---|
-| name_language | 2/40 = 5.0% [1.4%, 16.5%] | null_name 0/40 [0.0%, 8.8%] |
-| gender_coded_name | 4/40 = 10.0% [4.0%, 23.1%] | null_name 0/40 [0.0%, 8.8%] |
-| university | 1/40 = 2.5% [0.4%, 12.9%] | null_university 1/40 = 2.5% [0.4%, 12.9%] |
+The baseline experiment contained 200 matched pairs (400 applicant profiles). I tested three attributes:
 
-All the intervals overlap, so this run does not show that any attribute moved the decision. The mean absolute score differences (3.12, 1.12 and 2.50) also overlap their floors (2.00, 2.00 and 2.12). The floors are not zero in scores: null_name changed the score in 7 of 40 pairs and null_university in 9 of 40.
+- Name language.
+- Gender-coded names.
+- University background.
 
-Two things are worth a note. All 4 flips in gender_coded_name went against the male-coded name (0 the other way, McNemar p = 0.125; shortlisted 80.0% male-coded vs 90.0% female-coded). That is not significant: the exact test needs at least 6 such pairs when none go the other way. And flagship minus regional university was +2.5 [+1.1, +4.1] points, sign test p = 0.002, with all 10 pairs that had different scores favouring the flagship member. But only 1 of 40 pairs changed decision, and 2.50 is close to the floor's 2.12, so I call it a small one-directional score shift, not proven unequal treatment.
+I also used two null comparisons (`null_name` and `null_university`) to estimate how much variation could occur without changing the attribute being tested.
 
-What n = 40 can detect: at least 6 one-sided pairs (15.0%) with none the other way, 8 with one the other way, 10 with two. A smaller effect cannot be told from chance, and no measured effect is not proof of no effect.
+The results were:
 
-The agent shortlisted almost everybody (356 of 400) and the scores cluster, with the threshold around 45 (33 rejected and 31 shortlisted in the 40-49 bin). Most profiles are far from the threshold, which is a big reason why there are so few flips.
+| Attribute | Pair flips | Flip rate | Mean absolute score difference |
+|---|---:|---:|---:|
+| Name language | 2/40 | 5.0% | 3.12 |
+| Gender-coded name | 4/40 | 10.0% | 1.12 |
+| University | 1/40 | 2.5% | 2.50 |
+| Null name | 0/40 | 0.0% | 2.00 |
+| Null university | 1/40 | 2.5% | 2.12 |
 
-## Who is affected
-- Applicants with male-coded names and applicants from regional universities: the two directions I saw, both below what 40 pairs can establish. If they are real, the cost is a lower chance of a shortlist for a reason unrelated to merit.
-- Applicants with unusual names or programme titles: my free-text rule would refuse them with no decision at all. The 0 of 400 refusals I measured used plain Latin generated names, so it says nothing about real applicants.
-- Applicants decided differently because of how the prompt is written: see the next section.
-- Reviewers, who get the escalated cases as extra work.
+The results show some differences between matched applicants. However, the sample was small, and the null comparisons also produced score differences. Therefore, I cannot conclude that every observed difference was caused by the tested attribute.
 
-## What the harness changed
-Blinding name and university makes the two members of every pair see identical text, so flips are 0/40 on all five attributes. That is zero by construction. It does not show the model stopped relying on those fields.
+For gender-coded names, all four decision flips went against the male-coded name. The shortlist rate was 80% for male-coded names and 90% for female-coded names. However, the McNemar test gave p = 0.125, so this result was not statistically significant.
 
-What is informative is what happened to individual profiles. The outcome changed for 36 of 400: shortlist to reject 17, shortlist to escalate 12, reject to shortlist 5, reject to escalate 2. Shortlisted went from 356 to 332 and rejected from 44 to 54. Scores changed for 166 of 400 profiles, with a mean absolute change of 14.01 points. The floors for swapping a name or a university were around 2 points. So taking two lines out of the prompt moved scores far more than any attribute effect I measured in Part 1. Changing the form of the prompt is not the same as showing that the model relied on the removed field, but it does mean my floors do not bound all the noise.
+For university background, flagship-university profiles received an average score advantage of 2.5 points over regional-university profiles. All 10 pairs with different scores favoured the flagship university. However, only one pair changed its final decision, and the score difference was close to the null comparison. This suggests a possible score-level effect, not proof of unequal treatment.
 
-Cost: 400 model calls before and 400 after (1.00 per profile, the counterfactual check is off), prompt tokens 84409 to 77922, 474.7 s vs 473.8 s. Refusals in the run: 0 of 400. Sent to a person: 14 of 400 (3.5%), against 20.0% (80 of 400) planned. Of the 14, 8 came from the score band (45, 55) and 6 from my own rule that looks for protected-sounding words in the model's reason. In the sample I read, the model wrote "strong academic background" and the word "background" sent a 75-point shortlist to a reviewer. [k of the 6 were false alarms like that: fill in after running the loop over the log.]
+In the baseline run, 356 of 400 profiles were shortlisted and 44 were rejected. The model produced no unparseable responses.
 
-The refusal path was exercised on 6 requests: 5 were refused with no model call (purpose_not_allowed, minor, no_consent, invalid_input, free_text_unexpected_characters) and the ordinary one got a decision. The bare pipeline screened all six and returned a verdict for each.
+## 2. What I Found
 
-## Where my responsibility lies
-I built the harness, so the choices in it are mine, including the ones that went wrong. I picked the band from the baseline scores, but blinding moved the scores, so the band caught 8 profiles instead of the 80 I planned. I should have recalibrated on the harness scores and did not have time. My word list for the reasons produced false alarms. I did not prove that the agent is fair: n = 40 is small, and I measured only name language, gender coding and university. I would not deploy this as it is. Before using it on real applicants I would recalibrate the band on the deployed configuration, record what the human reviewers decide, test the refusal rules on real names, and measure again with many more pairs, including profiles close to the threshold.
+The agent shortlisted most applicants. This is important because a system that accepts almost everyone may not distinguish applicants effectively.
+
+Most scores were far from the decision threshold. However, in the 40–49 score range, 31 applicants were shortlisted and 33 were rejected. This shows that decisions near the threshold deserve particular attention.
+
+The experiment also showed that a small number of matched pairs can produce different decisions. However, the sample size limits the strength of the conclusions. A result that is not statistically significant does not prove that discrimination is absent.
+
+The null comparisons are important because they show the amount of variation that can occur even when the tested attribute is not changed.
+
+## 3. Who Is Affected
+
+The main people affected are scholarship applicants.
+
+A shortlist or rejection recommendation can influence whether an applicant receives further consideration and potentially access to financial support.
+
+Applicants may be affected by:
+
+- Their name or the language associated with it.
+- Their gender-coded name.
+- Their previous university.
+- Information used as a proxy for protected characteristics.
+- Changes in the model's prompt or scoring behaviour.
+
+The results suggest that university background and name-related information deserve monitoring. However, the experiment does not establish that the model intentionally discriminates against any group.
+
+Applicants with borderline scores are also affected because they may be sent for additional human review. Applicants outside the review range may receive an automatic recommendation without the same additional attention.
+
+## 4. What the Harness Changed
+
+I implemented five active controls: input validation, blinding, refusal, decision logging, and human escalation.
+
+The blinding control hides the applicant's name and university from the model.
+
+After blinding, the two members of each matched pair received identical model-visible text. Therefore, pair flips and score differences became zero for all five attributes. This is zero by construction, not proof that the model became fair or stopped relying on those attributes. Other information may still act as a proxy.
+
+The individual results changed:
+
+- 36 of 400 profiles (9.0%) received a different outcome.
+- 17 changed from shortlist to reject.
+- 12 changed from shortlist to escalate.
+- 5 changed from reject to shortlist.
+- 2 changed from reject to escalate.
+- Shortlisted profiles decreased from 356 to 332.
+- Rejected profiles increased from 44 to 54.
+- Scores changed for 166 of 400 profiles.
+- The mean absolute score change was 14.01 points.
+
+The prompt changed when names and universities were removed. Therefore, these changes do not prove that the model relied on those fields in the baseline run. They do show that the model was sensitive to changes in prompt structure.
+
+### Human Escalation
+
+The harness sent 14 of 400 profiles (3.5%) to a human reviewer.
+
+Eight were escalated because of the borderline score rule, and six because of the reason-word rule.
+
+The planned review share was 20% (80 of 400), but the actual share was much lower. The score band (45, 55) had been calibrated using the baseline scores and was not recalibrated after blinding changed the prompt and scores.
+
+The reason-word rule also produced at least one confirmed false alarm. The model used the phrase "strong academic background" in a positive academic context, but the word "background" triggered escalation.
+
+This shows that keyword matching can misunderstand context and create unnecessary review work.
+
+### Refusal and Validation
+
+I tested six requests through the bare pipeline and the harness.
+
+The harness refused five requests without making a model call:
+
+- An inappropriate screening purpose.
+- An applicant under 18.
+- Missing consent.
+- Invalid numerical values.
+- Unexpected instructions in the name field.
+
+One ordinary request received a decision.
+
+The 400 clean profiles in the main experiment produced zero refusals. This does not prove that the refusal rules will never reject legitimate applicants. For example, unusual names or programme titles may trigger the free-text rule.
+
+### Cost
+
+The harness made 400 model calls before blinding and 400 after blinding: one call per profile in each run.
+
+The counterfactual check was disabled (`counterfactual_check=False`), so it did not add model calls.
+
+| Measurement | Before blinding | After blinding |
+|---|---:|---:|
+| Model calls | 400 | 400 |
+| Prompt tokens | 84,409 | 77,922 |
+| Runtime | 474.7 seconds | 473.8 seconds |
+
+The harness did not significantly increase runtime in this experiment.
+
+## 5. Where My Responsibility Lies
+
+My responsibility is not only to implement controls but also to understand their limitations and explain their effects.
+
+The experiment showed that blinding removes names and universities from the model's input, but it does not prove that the final decisions are fair. The prompt change also affected scores and outcomes, so I cannot claim that every change was caused by removing potentially sensitive information.
+
+The borderline score band needs to be recalibrated using the scores of the final system configuration. Otherwise, the intended human review rate may not be achieved.
+
+The reason-word rule needs better context handling because it can create false alarms. The refusal rules should also be tested on legitimate names and programme titles to identify incorrect refusals.
+
+The decision log supports basic auditing, but it does not record the human reviewer's final decision. This should be added so that the organisation can evaluate whether human review corrects mistakes.
+
+The counterfactual check was disabled, so I cannot use it as evidence that the final system passed an additional fairness test.
+
+My conclusion is that the harness makes the system more controlled and easier to inspect, but it does not guarantee fair scholarship decisions. Before real deployment, the system would need further testing, recalibration, better human-review records, and regular monitoring.
